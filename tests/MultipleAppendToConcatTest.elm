@@ -8,24 +8,33 @@ import Test exposing (Test, describe, test)
 all : Test
 all =
     describe "MultipleAppendToConcat"
-        [ test "should not report an error when REPLACEME" <|
+        [ test "should not report an error when there is only one ++" <|
             \() ->
                 """module A exposing (..)
-a = 1
+a = "a" ++ "bc"
+b = [ 1 ] ++ [ 2, 3 ]
 """
                     |> Review.Test.run (rule MultipleAppendToConcat.ApplyList)
                     |> Review.Test.expectNoErrors
-        , test "should report an error when REPLACEME" <|
+        , test "should not report an error when ++ is nested in operand of ++" <|
             \() ->
                 """module A exposing (..)
-a = 1
+a = "a" ++ ("b" ++ "c")
+b = [ 1 ] ++ ([ 2 ] ++ [ 3 ])
+"""
+                    |> Review.Test.run (rule MultipleAppendToConcat.ApplyList)
+                    |> Review.Test.expectNoErrors
+        , test "should report an error but not provide a fix for non-obvious appendable typed values" <|
+            \() ->
+                """module A exposing (..)
+a = b ++ c ++ d
 """
                     |> Review.Test.run (rule MultipleAppendToConcat.ApplyList)
                     |> Review.Test.expectErrors
                         [ Review.Test.error
-                            { message = "REPLACEME"
-                            , details = [ "REPLACEME" ]
-                            , under = "REPLACEME"
+                            { message = "multiple `++`s in sequence can be replaced with concat"
+                            , details = [ "Putting all the appended values in a list and combining them with String.concat or List.concat is more readable. A more detailed explanation can be found at https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/latest#why" ]
+                            , under = "b ++ c ++ d"
                             }
                         ]
         ]

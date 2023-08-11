@@ -6,8 +6,10 @@ module MultipleAppendToConcat exposing (rule, ListSupplyStyle(..))
 
 -}
 
-import Elm.Syntax.Expression exposing (Expression)
-import Elm.Syntax.Node as Node exposing (Node)
+import Elm.Syntax.Expression as Expression exposing (Expression)
+import Elm.Syntax.Node as Node exposing (Node(..))
+import Elm.Syntax.Range exposing (Range)
+import Review.Fix as Fix exposing (Fix)
 import Review.Rule as Rule exposing (Rule)
 
 
@@ -73,7 +75,16 @@ Read the [readme for why you would (not) want to enable this rule](https://packa
 rule : ListSupplyStyle -> Rule
 rule listSupplyStyle =
     Rule.newModuleRuleSchemaUsingContextCreator "MultipleAppendToConcat" initialContext
-        |> Rule.withExpressionEnterVisitor expressionVisitor
+        |> Rule.withExpressionEnterVisitor
+            (\expressionNode context ->
+                ( expressionVisitor
+                    { expressionNode = expressionNode
+                    , context = context
+                    , listSupplyStyle = listSupplyStyle
+                    }
+                , context
+                )
+            )
         |> Rule.fromModuleRuleSchema
 
 
@@ -89,8 +100,178 @@ initialContext =
         )
 
 
-expressionVisitor : Node Expression -> Context -> ( List (Rule.Error {}), Context )
-expressionVisitor node context =
-    case Node.value node of
+expressionVisitor :
+    { expressionNode : Node Expression
+    , context : Context
+    , listSupplyStyle : ListSupplyStyle
+    }
+    -> List (Rule.Error {})
+expressionVisitor info =
+    let
+        appendable : { type_ : Maybe AppendableType, operandRanges : List Range }
+        appendable =
+            info.expressionNode |> toAppendable
+    in
+    case appendable.operandRanges of
+        appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp ->
+            [ Rule.errorWithFix
+                { message = "multiple `++`s in sequence can be replaced with concat"
+                , details = [ "Putting all the appended values in a list and combining them with String.concat or List.concat is more readable. A more detailed explanation can be found at https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/latest#why" ]
+                }
+                (info.expressionNode |> Node.range)
+                (case appendable.type_ of
+                    Nothing ->
+                        []
+
+                    Just appendableType ->
+                        [ [ Fix.insertAt (info.expressionNode |> Node.range).start "(" ]
+                        , appendSequenceToListFix
+                            { structure = info.expressionNode |> Node.range
+                            , appendOperands = appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp
+                            }
+                        , supplyListFix
+                            { appendableType = appendableType
+                            , structure = info.expressionNode |> Node.range
+                            , style = info.listSupplyStyle
+                            }
+                        , [ Fix.insertAt (info.expressionNode |> Node.range).end ")" ]
+                        ]
+                            |> List.concat
+                )
+            ]
+
         _ ->
-            ( [], context )
+            []
+
+
+appendSequenceToListFix : { appendOperands : List Range, structure : Range } -> List Fix
+appendSequenceToListFix ranges =
+    let
+        listSeparator : String
+        listSeparator =
+            case ranges.structure |> lineSpan of
+                SingleLine ->
+                    ", "
+
+                MultiLine ->
+                    [ "\n", String.repeat ranges.structure.start.column " ", ", " ] |> String.concat
+    in
+    [ [ Fix.insertAt ranges.structure.start "[ " ]
+    , ranges.appendOperands
+        |> consecutiveMap
+            (\appendOperandRange ->
+                Fix.replaceRangeBy
+                    { start = appendOperandRange.previous.end
+                    , end = appendOperandRange.current.start
+                    }
+                    listSeparator
+            )
+    , [ Fix.insertAt ranges.structure.end " ]" ]
+    ]
+        |> List.concat
+
+
+type AppendableType
+    = AppendableString
+    | AppendableList
+
+
+supplyListFix :
+    { appendableType : AppendableType
+    , style : ListSupplyStyle
+    , structure : Range
+    }
+    -> List Fix
+supplyListFix config =
+    let
+        appendableConcatString : String
+        appendableConcatString =
+            case config.appendableType of
+                AppendableString ->
+                    "String.concat"
+
+                AppendableList ->
+                    "List.concat"
+    in
+    case config.style of
+        ApplyList ->
+            [ Fix.insertAt config.structure.start (appendableConcatString ++ " ") ]
+
+        PipeLeftList ->
+            [ Fix.insertAt config.structure.start (appendableConcatString ++ " <| ") ]
+
+        PipeRightList ->
+            [ Fix.insertAt config.structure.end (" |> " ++ appendableConcatString) ]
+
+
+toAppendable :
+    Node Expression
+    ->
+        { type_ : Maybe AppendableType
+        , operandRanges : List Range
+        }
+toAppendable (Node expressionRange expression) =
+    case expression of
+        Expression.OperatorApplication "++" _ left right ->
+            let
+                leftAppendable : { type_ : Maybe AppendableType, operandRanges : List Range }
+                leftAppendable =
+                    left |> toAppendable
+
+                rightAppendable : { type_ : Maybe AppendableType, operandRanges : List Range }
+                rightAppendable =
+                    right |> toAppendable
+            in
+            { type_ = leftAppendable.type_ |> onNothing rightAppendable.type_
+            , operandRanges = leftAppendable.operandRanges ++ rightAppendable.operandRanges
+            }
+
+        Expression.Literal _ ->
+            { type_ = AppendableString |> Just, operandRanges = [ expressionRange ] }
+
+        Expression.OperatorApplication "::" _ _ _ ->
+            { type_ = AppendableList |> Just, operandRanges = [ expressionRange ] }
+
+        Expression.ListExpr _ ->
+            { type_ = AppendableList |> Just, operandRanges = [ expressionRange ] }
+
+        _ ->
+            { type_ = Nothing, operandRanges = [ expressionRange ] }
+
+
+type LineSpan
+    = SingleLine
+    | MultiLine
+
+
+lineSpan : Range -> LineSpan
+lineSpan =
+    \range ->
+        case range.end.row - range.start.row of
+            0 ->
+                SingleLine
+
+            _ ->
+                MultiLine
+
+
+onNothing : Maybe a -> (Maybe a -> Maybe a)
+onNothing secondTry =
+    \firstTry ->
+        case firstTry of
+            Nothing ->
+                secondTry
+
+            Just firstTryContent ->
+                firstTryContent |> Just
+
+
+consecutiveMap : ({ previous : element, current : element } -> newElement) -> (List element -> List newElement)
+consecutiveMap previousAndCurrentToNewElement =
+    \list ->
+        List.map2
+            (\previous element ->
+                previousAndCurrentToNewElement { previous = previous, current = element }
+            )
+            (list |> List.drop 1)
+            list

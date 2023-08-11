@@ -2,7 +2,7 @@
 
 Provides the [`elm-review`](https://package.elm-lang.org/packages/jfmengels/elm-review/latest/) rule
 [`MultipleAppendToConcat`](https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/1.0.0/MultipleAppendToConcat)
-that replaces multiple `++`s in sequence with concat, like
+that replaces multiple `++` in sequence with concat, like
 
 ```elm
 combinedString =

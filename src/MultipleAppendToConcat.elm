@@ -1,6 +1,6 @@
 module MultipleAppendToConcat exposing (rule, ListSupplyStyle(..))
 
-{-| Rule: Replace multiple `++`s in sequence with concat.
+{-| Rule: Replace multiple `++` in sequence with concat.
 
 @docs rule, ListSupplyStyle
 
@@ -26,7 +26,7 @@ type ListSupplyStyle
     | PipeLeftList
 
 
-{-| Replaces multiple `++`s in sequence with concat in a given [`ListSupplyStyle`](#ListSupplyStyle).
+{-| Replaces multiple `++` in sequence with concat in a given [`ListSupplyStyle`](#ListSupplyStyle).
 
 For example, running `MultipleAppendToConcat.rule MultipleAppendToConcat.ApplyList` on
 
@@ -115,7 +115,7 @@ expressionVisitor info =
     case appendable.operandRanges of
         appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp ->
             [ Rule.errorWithFix
-                { message = "multiple `++`s in sequence can be replaced with concat"
+                { message = "multiple `++` in sequence can be replaced with concat"
                 , details = [ "Putting all the appended values in a list and combining them with String.concat or List.concat is more readable. A more detailed explanation can be found at https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/latest#why" ]
                 }
                 (info.expressionNode |> Node.range)

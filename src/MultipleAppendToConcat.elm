@@ -75,6 +75,7 @@ Read the [readme for why you would (not) want to enable this rule](https://packa
 rule : ListSupplyStyle -> Rule
 rule listSupplyStyle =
     Rule.newModuleRuleSchemaUsingContextCreator "MultipleAppendToConcat" initialContext
+        |> Rule.providesFixesForModuleRule
         |> Rule.withExpressionEnterVisitor
             (\expressionNode context ->
                 ( expressionVisitor

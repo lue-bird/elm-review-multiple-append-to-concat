@@ -125,17 +125,12 @@ expressionVisitor info =
                         []
 
                     Just appendableType ->
-                        [ appendSequenceToListFix
-                            { structure = info.expressionNode |> Node.range
-                            , appendOperands = appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp
-                            }
-                        , supplyListFix
+                        appendSequenceToConcatListFix
                             { appendableType = appendableType
+                            , appendOperands = appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp
                             , structure = info.expressionNode |> Node.range
                             , style = info.listSupplyStyle
                             }
-                        ]
-                            |> List.concat
                 )
             ]
 
@@ -143,56 +138,19 @@ expressionVisitor info =
             []
 
 
-appendSequenceToListFix : { appendOperands : List Range, structure : Range } -> List Fix
-appendSequenceToListFix ranges =
-    let
-        listSeparator : String
-        listSeparator =
-            case ranges.structure |> lineSpan of
-                SingleLine ->
-                    ", "
-
-                MultiLine ->
-                    [ "\n", String.repeat (ranges.structure.start.column - 1) " ", ", " ] |> String.concat
-
-        spaceBetweenLastElementAndClosingBracket : String
-        spaceBetweenLastElementAndClosingBracket =
-            case ranges.structure |> lineSpan of
-                SingleLine ->
-                    " "
-
-                MultiLine ->
-                    [ "\n", String.repeat (ranges.structure.start.column - 1) " " ] |> String.concat
-    in
-    [ [ Fix.insertAt ranges.structure.start "[ " ]
-    , ranges.appendOperands
-        |> consecutiveMap
-            (\appendOperandRange ->
-                Fix.replaceRangeBy
-                    { start = appendOperandRange.previous.end
-                    , end = appendOperandRange.current.start
-                    }
-                    listSeparator
-            )
-    , [ Fix.insertAt ranges.structure.end
-            (spaceBetweenLastElementAndClosingBracket ++ "]")
-      ]
-    ]
-        |> List.concat
-
-
 type AppendableType
     = AppendableString
     | AppendableList
 
 
-supplyListFix :
+appendSequenceToConcatListFix :
     { appendableType : AppendableType
+    , appendOperands : List Range
     , style : ListSupplyStyle
     , structure : Range
     }
     -> List Fix
-supplyListFix config =
+appendSequenceToConcatListFix config =
     let
         appendableConcatString : String
         appendableConcatString =
@@ -203,30 +161,67 @@ supplyListFix config =
                 AppendableList ->
                     "List.concat"
 
-        spaceBetweenConcatAndList : String
-        spaceBetweenConcatAndList =
+        breakSpace : String
+        breakSpace =
             case config.structure |> lineSpan of
                 SingleLine ->
                     " "
 
                 MultiLine ->
                     [ "\n", String.repeat (config.structure.start.column - 1) " " ] |> String.concat
+
+        listSeparator : String
+        listSeparator =
+            case config.structure |> lineSpan of
+                SingleLine ->
+                    ", "
+
+                MultiLine ->
+                    [ "\n", String.repeat (config.structure.start.column - 1) " ", ", " ] |> String.concat
+
+        commaSeparatedOperands : List Fix
+        commaSeparatedOperands =
+            config.appendOperands
+                |> consecutiveMap
+                    (\appendOperandRange ->
+                        Fix.replaceRangeBy
+                            { start = appendOperandRange.previous.end
+                            , end = appendOperandRange.current.start
+                            }
+                            listSeparator
+                    )
     in
-    case config.style of
-        ApplyList ->
-            [ Fix.insertAt config.structure.start (appendableConcatString ++ spaceBetweenConcatAndList) ]
+    commaSeparatedOperands
+        ++ (case config.style of
+                ApplyList ->
+                    [ Fix.insertAt config.structure.start (appendableConcatString ++ breakSpace ++ "[ ")
+                    , Fix.insertAt config.structure.end
+                        (breakSpace ++ "]")
+                    ]
 
-        PipeLeftList ->
-            [ Fix.insertAt config.structure.start
-                ([ "(", appendableConcatString, " <|", spaceBetweenConcatAndList ] |> String.concat)
-            , Fix.insertAt config.structure.end ")"
-            ]
+                PipeLeftList ->
+                    [ Fix.insertAt config.structure.start
+                        ([ "(", appendableConcatString, " <|", breakSpace, "[ " ] |> String.concat)
+                    , Fix.insertAt config.structure.end
+                        ([ breakSpace, "])" ]
+                            |> String.concat
+                        )
+                    ]
 
-        PipeRightList ->
-            [ Fix.insertAt config.structure.start "("
-            , Fix.insertAt config.structure.end
-                ([ spaceBetweenConcatAndList, "|> ", appendableConcatString, ")" ] |> String.concat)
-            ]
+                PipeRightList ->
+                    [ Fix.insertAt config.structure.start "([ "
+                    , Fix.insertAt config.structure.end
+                        ([ breakSpace
+                         , "]"
+                         , breakSpace
+                         , "|> "
+                         , appendableConcatString
+                         , ")"
+                         ]
+                            |> String.concat
+                        )
+                    ]
+           )
 
 
 toAppendable :

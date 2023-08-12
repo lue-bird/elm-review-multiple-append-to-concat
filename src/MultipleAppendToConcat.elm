@@ -8,7 +8,7 @@ module MultipleAppendToConcat exposing (rule, ListSupplyStyle(..))
 
 import Elm.Syntax.Expression as Expression exposing (Expression)
 import Elm.Syntax.Node as Node exposing (Node(..))
-import Elm.Syntax.Range exposing (Range)
+import Elm.Syntax.Range exposing (Location, Range)
 import Review.Fix as Fix exposing (Fix)
 import Review.Rule as Rule exposing (Rule)
 
@@ -161,67 +161,117 @@ appendSequenceToConcatListFix config =
                 AppendableList ->
                     "List.concat"
 
-        breakSpace : String
-        breakSpace =
-            case config.structure |> lineSpan of
-                SingleLine ->
-                    " "
+        multiLineBreak : String
+        multiLineBreak =
+            [ "\n", String.repeat (config.structure.start.column - 1) " " ] |> String.concat
 
-                MultiLine ->
-                    [ "\n", String.repeat (config.structure.start.column - 1) " " ] |> String.concat
+        linesWithoutListBracketOrComma : List Int
+        linesWithoutListBracketOrComma =
+            List.range (config.structure.start.row + 1) config.structure.end.row
+                |> List.filter
+                    (\row ->
+                        betweenOperands
+                            |> List.all
+                                (\betweenRange -> not (row |> rowIsInRange betweenRange))
+                    )
 
-        listSeparator : String
-        listSeparator =
-            case config.structure |> lineSpan of
-                SingleLine ->
-                    ", "
-
-                MultiLine ->
-                    [ "\n", String.repeat (config.structure.start.column - 1) " ", ", " ] |> String.concat
-
-        commaSeparatedOperands : List Fix
-        commaSeparatedOperands =
+        betweenOperands : List { start : Elm.Syntax.Range.Location, end : Elm.Syntax.Range.Location }
+        betweenOperands =
             config.appendOperands
                 |> consecutiveMap
                     (\appendOperandRange ->
-                        Fix.replaceRangeBy
-                            { start = appendOperandRange.previous.end
-                            , end = appendOperandRange.current.start
-                            }
-                            listSeparator
+                        { start = appendOperandRange.previous.end
+                        , end = appendOperandRange.current.start
+                        }
+                    )
+
+        multiLineCommaSeparatedOperandsIndentedBy : Int -> List Fix
+        multiLineCommaSeparatedOperandsIndentedBy indentation =
+            betweenOperands
+                |> List.map
+                    (\between2Operands ->
+                        Fix.replaceRangeBy between2Operands
+                            ([ multiLineBreak, String.repeat indentation " ", ", " ] |> String.concat)
+                    )
+
+        singleLineCommaSeparatedOperands : List Fix
+        singleLineCommaSeparatedOperands =
+            betweenOperands
+                |> List.map
+                    (\between2Operands ->
+                        Fix.replaceRangeBy between2Operands ", "
                     )
     in
-    commaSeparatedOperands
-        ++ (case config.style of
-                ApplyList ->
-                    [ Fix.insertAt config.structure.start (appendableConcatString ++ breakSpace ++ "[ ")
-                    , Fix.insertAt config.structure.end
-                        (breakSpace ++ "]")
+    case config.style of
+        ApplyList ->
+            case config.structure |> lineSpan of
+                SingleLine ->
+                    [ Fix.insertAt config.structure.start (appendableConcatString ++ " [ ")
+                    , Fix.insertAt config.structure.end " ]"
                     ]
+                        ++ singleLineCommaSeparatedOperands
 
-                PipeLeftList ->
+                MultiLine ->
+                    [ Fix.insertAt config.structure.start (appendableConcatString ++ multiLineBreak ++ "    [ ")
+                    , Fix.insertAt config.structure.end (multiLineBreak ++ "    ]")
+                    ]
+                        ++ multiLineCommaSeparatedOperandsIndentedBy 4
+                        ++ (linesWithoutListBracketOrComma
+                                |> List.map (\row -> Fix.insertAt { row = row, column = 1 } "    ")
+                           )
+
+        PipeLeftList ->
+            case config.structure |> lineSpan of
+                SingleLine ->
                     [ Fix.insertAt config.structure.start
-                        ([ "(", appendableConcatString, " <|", breakSpace, "[ " ] |> String.concat)
-                    , Fix.insertAt config.structure.end
-                        ([ breakSpace, "])" ]
-                            |> String.concat
-                        )
+                        ([ "(", appendableConcatString, " <| [ " ] |> String.concat)
+                    , Fix.insertAt config.structure.end " ])"
                     ]
+                        ++ singleLineCommaSeparatedOperands
 
-                PipeRightList ->
+                MultiLine ->
+                    [ Fix.insertAt config.structure.start
+                        ([ "(", appendableConcatString, " <|", multiLineBreak, "    [ " ] |> String.concat)
+                    , Fix.insertAt config.structure.end
+                        ([ multiLineBreak, "    ]", multiLineBreak, ")" ] |> String.concat)
+                    ]
+                        ++ multiLineCommaSeparatedOperandsIndentedBy 4
+                        ++ (linesWithoutListBracketOrComma
+                                |> List.map (\row -> Fix.insertAt { row = row, column = 1 } "    ")
+                           )
+
+        PipeRightList ->
+            case config.structure |> lineSpan of
+                SingleLine ->
                     [ Fix.insertAt config.structure.start "([ "
                     , Fix.insertAt config.structure.end
-                        ([ breakSpace
-                         , "]"
-                         , breakSpace
-                         , "|> "
+                        ([ " ] |> "
                          , appendableConcatString
                          , ")"
                          ]
                             |> String.concat
                         )
                     ]
-           )
+                        ++ singleLineCommaSeparatedOperands
+
+                MultiLine ->
+                    [ Fix.insertAt config.structure.start "([ "
+                    , Fix.insertAt config.structure.end
+                        ([ multiLineBreak
+                         , " ]"
+                         , multiLineBreak
+                         , "    |> "
+                         , appendableConcatString
+                         , multiLineBreak
+                         , ")"
+                         ]
+                            |> String.concat
+                        )
+                    ]
+                        ++ multiLineCommaSeparatedOperandsIndentedBy 1
+                        ++ (linesWithoutListBracketOrComma
+                                |> List.map (\row -> Fix.insertAt { row = row, column = 1 } " ")
+                           )
 
 
 toAppendable :
@@ -273,6 +323,13 @@ lineSpan =
 
             _ ->
                 MultiLine
+
+
+rowIsInRange : Range -> (Int -> Bool)
+rowIsInRange range =
+    \row ->
+        (row >= range.start.row)
+            && (row <= range.end.row)
 
 
 onNothing : Maybe a -> (Maybe a -> Maybe a)

@@ -153,7 +153,7 @@ appendSequenceToListFix ranges =
                     ", "
 
                 MultiLine ->
-                    [ "\n", String.repeat ranges.structure.start.column " ", ", " ] |> String.concat
+                    [ "\n", String.repeat (ranges.structure.start.column - 1) " ", ", " ] |> String.concat
     in
     [ [ Fix.insertAt ranges.structure.start "[ " ]
     , ranges.appendOperands

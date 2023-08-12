@@ -270,8 +270,8 @@ consecutiveMap : ({ previous : element, current : element } -> newElement) -> (L
 consecutiveMap previousAndCurrentToNewElement =
     \list ->
         List.map2
-            (\previous element ->
-                previousAndCurrentToNewElement { previous = previous, current = element }
+            (\current previous ->
+                previousAndCurrentToNewElement { previous = previous, current = current }
             )
             (list |> List.drop 1)
             list

@@ -54,4 +54,30 @@ a = "b" ++ "c" ++ "d"
 a = String.concat [ "b", "c", "d" ]
 """
                         ]
+        , test "should fix multiple ++ strings multi-line with apply" <|
+            \() ->
+                """module A exposing (..)
+a =
+    "b"
+        ++ "c"
+        ++ "d"
+"""
+                    |> Review.Test.run (rule MultipleAppendToConcat.ApplyList)
+                    |> Review.Test.expectErrors
+                        [ Review.Test.error
+                            { message = "multiple `++` in sequence can be replaced with concat"
+                            , details = [ "Putting all the appended values in a list and combining them with String.concat or List.concat is more readable. A more detailed explanation can be found at https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/latest#why" ]
+                            , under = """"b"
+        ++ "c"
+        ++ "d\""""
+                            }
+                            |> Review.Test.whenFixed
+                                """module A exposing (..)
+a =
+    String.concat
+    [ "b"
+    , "c"
+    , "d" ]
+"""
+                        ]
         ]

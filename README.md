@@ -47,9 +47,9 @@ combinedList =
 
   - `elm-review` doesn't have type inference, so for values like `a ++ b ++ c` this rule doesn't provide a fix
   - It is highly, highly recommended to use [`elm-review-simplify`](https://dark.elm.dmy.fr/packages/jfmengels/elm-review-simplify/latest/) alongside which simplifies
-    `[ a ] ++ b ++ c` to `a :: b ++ c`,
-    `[ a, b ] ++ [ c, d ]` to `[ a, b, c, d ]`,
-    `a :: [ b, c ] ++ d` to `[ a, b, c ] ++ d` etc
+      - `[ a, b ] ++ [ c, d ]` to `[ a, b, c, d ]`
+      - `[] ++ [ b, c ]` to `[ b, c ]`
+      - `[ a ] ++ b ++ c` to `a :: b ++ c` etc
 
 ## why
 

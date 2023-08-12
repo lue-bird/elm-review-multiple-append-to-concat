@@ -154,6 +154,15 @@ appendSequenceToListFix ranges =
 
                 MultiLine ->
                     [ "\n", String.repeat (ranges.structure.start.column - 1) " ", ", " ] |> String.concat
+
+        spaceBetweenLastElementAndClosingBracket : String
+        spaceBetweenLastElementAndClosingBracket =
+            case ranges.structure |> lineSpan of
+                SingleLine ->
+                    " "
+
+                MultiLine ->
+                    [ "\n", String.repeat (ranges.structure.start.column - 1) " " ] |> String.concat
     in
     [ [ Fix.insertAt ranges.structure.start "[ " ]
     , ranges.appendOperands
@@ -165,7 +174,9 @@ appendSequenceToListFix ranges =
                     }
                     listSeparator
             )
-    , [ Fix.insertAt ranges.structure.end " ]" ]
+    , [ Fix.insertAt ranges.structure.end
+            (spaceBetweenLastElementAndClosingBracket ++ "]")
+      ]
     ]
         |> List.concat
 

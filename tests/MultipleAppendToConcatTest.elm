@@ -77,7 +77,8 @@ a =
     String.concat
     [ "b"
     , "c"
-    , "d" ]
+    , "d"
+    ]
 """
                         ]
         ]

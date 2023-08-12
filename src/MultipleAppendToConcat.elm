@@ -191,21 +191,30 @@ supplyListFix config =
 
                 AppendableList ->
                     "List.concat"
+
+        spaceBetweenConcatAndList : String
+        spaceBetweenConcatAndList =
+            case config.structure |> lineSpan of
+                SingleLine ->
+                    " "
+
+                MultiLine ->
+                    [ "\n", String.repeat (config.structure.start.column - 1) " " ] |> String.concat
     in
     case config.style of
         ApplyList ->
-            [ Fix.insertAt config.structure.start (appendableConcatString ++ " ") ]
+            [ Fix.insertAt config.structure.start (appendableConcatString ++ spaceBetweenConcatAndList) ]
 
         PipeLeftList ->
             [ Fix.insertAt config.structure.start
-                ([ "(", appendableConcatString, " <| " ] |> String.concat)
+                ([ "(", appendableConcatString, " <|", spaceBetweenConcatAndList ] |> String.concat)
             , Fix.insertAt config.structure.end ")"
             ]
 
         PipeRightList ->
             [ Fix.insertAt config.structure.start "("
             , Fix.insertAt config.structure.end
-                ([ " |> ", appendableConcatString, ")" ] |> String.concat)
+                ([ spaceBetweenConcatAndList, "|> ", appendableConcatString, ")" ] |> String.concat)
             ]
 
 

@@ -124,8 +124,7 @@ expressionVisitor info =
                         []
 
                     Just appendableType ->
-                        [ [ Fix.insertAt (info.expressionNode |> Node.range).start "(" ]
-                        , appendSequenceToListFix
+                        [ appendSequenceToListFix
                             { structure = info.expressionNode |> Node.range
                             , appendOperands = appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp
                             }
@@ -134,7 +133,6 @@ expressionVisitor info =
                             , structure = info.expressionNode |> Node.range
                             , style = info.listSupplyStyle
                             }
-                        , [ Fix.insertAt (info.expressionNode |> Node.range).end ")" ]
                         ]
                             |> List.concat
                 )
@@ -198,10 +196,16 @@ supplyListFix config =
             [ Fix.insertAt config.structure.start (appendableConcatString ++ " ") ]
 
         PipeLeftList ->
-            [ Fix.insertAt config.structure.start (appendableConcatString ++ " <| ") ]
+            [ Fix.insertAt config.structure.start
+                ([ "(", appendableConcatString, " <| " ] |> String.concat)
+            , Fix.insertAt config.structure.end ")"
+            ]
 
         PipeRightList ->
-            [ Fix.insertAt config.structure.end (" |> " ++ appendableConcatString) ]
+            [ Fix.insertAt config.structure.start "("
+            , Fix.insertAt config.structure.end
+                ([ " |> ", appendableConcatString, ")" ] |> String.concat)
+            ]
 
 
 toAppendable :

@@ -77,6 +77,8 @@ This is necessary because
   - changing indentation messes up multi-line strings
   - `case..of` cases are indentation sensitive, so adding for example a comma in front of the first line can lead to compiler errors
 
+[`elm-format`](https://github.com/avh4/elm-format) will safely prettify it anyway
+
 -}
 rule : ListSupplyStyle -> Rule
 rule listSupplyStyle =

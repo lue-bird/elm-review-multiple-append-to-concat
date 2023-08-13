@@ -7,8 +7,8 @@ module MultipleAppendToConcat exposing (rule, ListSupplyStyle(..))
 -}
 
 import Elm.Syntax.Expression as Expression exposing (Expression)
-import Elm.Syntax.Node as Node exposing (Node(..))
-import Elm.Syntax.Range exposing (Location, Range)
+import Elm.Syntax.Node as Node exposing (Node)
+import Elm.Syntax.Range exposing (Range)
 import Review.Fix as Fix exposing (Fix)
 import Review.Rule as Rule exposing (Rule)
 
@@ -71,6 +71,12 @@ fixed to
 
 Read the [readme for why you would (not) want to enable this rule](https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/1.0.0#why).
 
+Also don't be surprised when fixes look cursed. The fix keeps all appended operands in their original place. No extra aligning and indentation.
+This is necessary because
+
+  - changing indentation messes up multi-line strings
+  - `case..of` cases are indentation sensitive, so adding for example a comma in front of the first line can lead to compiler errors
+
 -}
 rule : ListSupplyStyle -> Rule
 rule listSupplyStyle =
@@ -109,12 +115,12 @@ expressionVisitor :
     -> List (Rule.Error {})
 expressionVisitor info =
     let
-        appendable : { type_ : Maybe AppendableType, operandRanges : List Range }
+        appendable : { type_ : Maybe AppendableType, operands : List (Node Expression) }
         appendable =
             info.expressionNode |> toAppendable
     in
-    case appendable.operandRanges of
-        appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp ->
+    case appendable.operands of
+        appendOperand0 :: appendOperand1 :: appendOperand2 :: appendOperand3Up ->
             [ Rule.errorWithFix
                 { message = "multiple `++` in sequence can be replaced with concat"
                 , details = [ "Putting all the appended values in a list and combining them with String.concat or List.concat is more readable. A more detailed explanation can be found at https://package.elm-lang.org/packages/lue-bird/elm-review-multiple-append-to-concat/latest#why" ]
@@ -127,7 +133,8 @@ expressionVisitor info =
                     Just appendableType ->
                         appendSequenceToConcatListFix
                             { appendableType = appendableType
-                            , appendOperands = appendOperand0Range :: appendOperand1Range :: appendOperand2Range :: appendOperand3RangeUp
+                            , appendOperands =
+                                appendOperand0 :: appendOperand1 :: appendOperand2 :: appendOperand3Up |> List.map Node.range
                             , structure = info.expressionNode |> Node.range
                             , style = info.listSupplyStyle
                             }
@@ -165,16 +172,6 @@ appendSequenceToConcatListFix config =
         multiLineBreak =
             [ "\n", String.repeat (config.structure.start.column - 1) " " ] |> String.concat
 
-        linesWithoutListBracketOrComma : List Int
-        linesWithoutListBracketOrComma =
-            List.range (config.structure.start.row + 1) config.structure.end.row
-                |> List.filter
-                    (\row ->
-                        betweenOperands
-                            |> List.all
-                                (\betweenRange -> not (row |> rowIsInRange betweenRange))
-                    )
-
         betweenOperands : List { start : Elm.Syntax.Range.Location, end : Elm.Syntax.Range.Location }
         betweenOperands =
             config.appendOperands
@@ -185,13 +182,13 @@ appendSequenceToConcatListFix config =
                         }
                     )
 
-        multiLineCommaSeparatedOperandsIndentedBy : Int -> List Fix
-        multiLineCommaSeparatedOperandsIndentedBy indentation =
+        multiLineCommaSeparatedOperands : List Fix
+        multiLineCommaSeparatedOperands =
             betweenOperands
                 |> List.map
                     (\between2Operands ->
                         Fix.replaceRangeBy between2Operands
-                            ([ multiLineBreak, String.repeat indentation " ", ", " ] |> String.concat)
+                            ([ ",\n", String.repeat (between2Operands.end.column - 1) " " ] |> String.concat)
                     )
 
         singleLineCommaSeparatedOperands : List Fix
@@ -212,13 +209,11 @@ appendSequenceToConcatListFix config =
                         ++ singleLineCommaSeparatedOperands
 
                 MultiLine ->
-                    [ Fix.insertAt config.structure.start (appendableConcatString ++ multiLineBreak ++ "    [ ")
-                    , Fix.insertAt config.structure.end (multiLineBreak ++ "    ]")
+                    [ Fix.insertAt config.structure.start
+                        ([ appendableConcatString, " [", multiLineBreak ] |> String.concat)
+                    , Fix.insertAt config.structure.end (multiLineBreak ++ "]")
                     ]
-                        ++ multiLineCommaSeparatedOperandsIndentedBy 4
-                        ++ (linesWithoutListBracketOrComma
-                                |> List.map (\row -> Fix.insertAt { row = row, column = 1 } "    ")
-                           )
+                        ++ multiLineCommaSeparatedOperands
 
         PipeLeftList ->
             case config.structure |> lineSpan of
@@ -231,14 +226,11 @@ appendSequenceToConcatListFix config =
 
                 MultiLine ->
                     [ Fix.insertAt config.structure.start
-                        ([ "(", appendableConcatString, " <|", multiLineBreak, "    [ " ] |> String.concat)
+                        ([ "(", appendableConcatString, " <| [", multiLineBreak ] |> String.concat)
                     , Fix.insertAt config.structure.end
-                        ([ multiLineBreak, "    ]", multiLineBreak, ")" ] |> String.concat)
+                        ([ multiLineBreak, "])" ] |> String.concat)
                     ]
-                        ++ multiLineCommaSeparatedOperandsIndentedBy 4
-                        ++ (linesWithoutListBracketOrComma
-                                |> List.map (\row -> Fix.insertAt { row = row, column = 1 } "    ")
-                           )
+                        ++ multiLineCommaSeparatedOperands
 
         PipeRightList ->
             case config.structure |> lineSpan of
@@ -255,10 +247,10 @@ appendSequenceToConcatListFix config =
                         ++ singleLineCommaSeparatedOperands
 
                 MultiLine ->
-                    [ Fix.insertAt config.structure.start "([ "
+                    [ Fix.insertAt config.structure.start ("([" ++ multiLineBreak)
                     , Fix.insertAt config.structure.end
                         ([ multiLineBreak
-                         , " ]"
+                         , "]"
                          , multiLineBreak
                          , "    |> "
                          , appendableConcatString
@@ -268,45 +260,42 @@ appendSequenceToConcatListFix config =
                             |> String.concat
                         )
                     ]
-                        ++ multiLineCommaSeparatedOperandsIndentedBy 1
-                        ++ (linesWithoutListBracketOrComma
-                                |> List.map (\row -> Fix.insertAt { row = row, column = 1 } " ")
-                           )
+                        ++ multiLineCommaSeparatedOperands
 
 
 toAppendable :
     Node Expression
     ->
         { type_ : Maybe AppendableType
-        , operandRanges : List Range
+        , operands : List (Node Expression)
         }
-toAppendable (Node expressionRange expression) =
-    case expression of
+toAppendable expressionNode =
+    case expressionNode |> Node.value of
         Expression.OperatorApplication "++" _ left right ->
             let
-                leftAppendable : { type_ : Maybe AppendableType, operandRanges : List Range }
+                leftAppendable : { type_ : Maybe AppendableType, operands : List (Node Expression) }
                 leftAppendable =
                     left |> toAppendable
 
-                rightAppendable : { type_ : Maybe AppendableType, operandRanges : List Range }
+                rightAppendable : { type_ : Maybe AppendableType, operands : List (Node Expression) }
                 rightAppendable =
                     right |> toAppendable
             in
             { type_ = leftAppendable.type_ |> onNothing rightAppendable.type_
-            , operandRanges = leftAppendable.operandRanges ++ rightAppendable.operandRanges
+            , operands = leftAppendable.operands ++ rightAppendable.operands
             }
 
         Expression.Literal _ ->
-            { type_ = AppendableString |> Just, operandRanges = [ expressionRange ] }
+            { type_ = AppendableString |> Just, operands = [ expressionNode ] }
 
         Expression.OperatorApplication "::" _ _ _ ->
-            { type_ = AppendableList |> Just, operandRanges = [ expressionRange ] }
+            { type_ = AppendableList |> Just, operands = [ expressionNode ] }
 
         Expression.ListExpr _ ->
-            { type_ = AppendableList |> Just, operandRanges = [ expressionRange ] }
+            { type_ = AppendableList |> Just, operands = [ expressionNode ] }
 
         _ ->
-            { type_ = Nothing, operandRanges = [ expressionRange ] }
+            { type_ = Nothing, operands = [ expressionNode ] }
 
 
 type LineSpan
@@ -323,13 +312,6 @@ lineSpan =
 
             _ ->
                 MultiLine
-
-
-rowIsInRange : Range -> (Int -> Bool)
-rowIsInRange range =
-    \row ->
-        (row >= range.start.row)
-            && (row <= range.end.row)
 
 
 onNothing : Maybe a -> (Maybe a -> Maybe a)

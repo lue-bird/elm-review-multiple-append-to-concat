@@ -3,7 +3,7 @@
     "name": "lue-bird/elm-review-multiple-append-to-concat",
     "summary": "elm-review: replace multiple `++` in sequence with concat",
     "license": "MIT",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "exposed-modules": [
         "MultipleAppendToConcat"
     ],

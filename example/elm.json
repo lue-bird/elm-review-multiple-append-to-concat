@@ -9,7 +9,7 @@
             "elm/core": "1.0.5",
             "jfmengels/elm-review": "2.13.1",
             "stil4m/elm-syntax": "7.2.9",
-            "lue-bird/elm-review-multiple-append-to-concat": "1.0.0"
+            "lue-bird/elm-review-multiple-append-to-concat": "1.0.1"
         },
         "indirect": {
             "elm/bytes": "1.0.8",
